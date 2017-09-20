@@ -9,28 +9,31 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Satainfo struct {
-	Endpoint    string                `json:"endpoint"`
-	Id          string                `json:"id"`
-	Time        int64                 `json:"time"`
-	Type        string                `json:"type"`
-	Version     string                `json:"version"`
-	DeviceModel string                `json:"devicemodel"`
-	Data        map[string][4]float64 `json:"data"`
+	Endpoint     string                `json:"endpoint"`
+	Id           string                `json:"id"`
+	Time         int64                 `json:"time"`
+	Type         string                `json:"type"`
+	Version      string                `json:"version"`
+	DeviceModel  string                `json:"devicemodel"`
+	SMART_result string                `json:"SMART overrall-health self-assessment test result"`
+	Data         map[string][4]float64 `json:"data"`
 }
 type Sasinfo struct {
-	Endpoint      string `json:"endpoint"`
-	Id            string `json:"id"`
-	Time          int64  `json:"time"`
-	Type          string `json:"type"`
-	Version       string `json:"version"`
-	VendorProduct string `json:"devicemodel"`
-	Data          struct {
+	Endpoint            string `json:"endpoint"`
+	Id                  string `json:"id"`
+	Time                int64  `json:"time"`
+	Type                string `json:"type"`
+	Version             string `json:"version"`
+	SMART_Health_Status string `json:"SMART Health Status"`
+	VendorProduct       string `json:"devicemodel"`
+	Data                struct {
 		//Sasdata  map[string]string        `json:"sasdata"`
 		Current_Drive_Temperature                                  string `json:"Current Drive Temperature"`
 		Drive_Trip_Temperature                                     string `json:"Drive Trip Temperature"`
@@ -71,7 +74,16 @@ var sasinfo Sasinfo
 var satainfo Satainfo
 
 func main() {
-	Getsmartinfo()
+	if len(os.Args) == 1 || os.Args[1] == "help" || len(os.Args) > 3 {
+		help()
+		return
+	}
+	netinterface := os.Args[1]
+	Getsmartinfo(netinterface)
+}
+func help() {
+	var s string = "Usage: ./smartinfo netinterfacename|help"
+	fmt.Println(s)
 }
 func Ifraid() string {
 	p := bytes.NewBuffer(nil)
@@ -89,8 +101,8 @@ func Ifraid() string {
 		return "smartctl --scan |grep -v megaraid"
 	}
 }
-func Getsmartinfo() {
-	endpoint = Getip()
+func Getsmartinfo(net string) {
+	endpoint = Getip(net)
 	sasinfo.Endpoint = endpoint
 	satainfo.Endpoint = endpoint
 	sasinfo.Version = "1.0"
@@ -114,14 +126,15 @@ func Getsmartinfo() {
 		if len(v) == 7 {
 			//smartcmd = "sudo /home/v-wxbroot/agent_new/smartctl -a " + v[0]
 			smartcmd = "smartctl -a " + v[0]
-			tags = v[4]
+			tags = v[0]
 			sasinfo.Id = tags
 			satainfo.Id = tags
 		}
 		if len(v) == 8 {
 			//smartcmd = "sudo /home/v-wxbroot/agent_new/smartctl -a -d " + v[2] + " " + v[0]
 			smartcmd = "smartctl -a -d " + v[2] + " " + v[0]
-			tags = v[5]
+			reg := regexp.MustCompile(",")
+			tags = reg.ReplaceAllString(v[5], "")
 			sasinfo.Id = tags
 			satainfo.Id = tags
 		}
@@ -153,6 +166,16 @@ func Getsmartinfo() {
 				//slice1 := strings.Fields(line)
 				//v1 := slice1[2]
 				satainfo.Type = "SATA"
+			}
+			if strings.Contains(line, "SMART overall-health self-assessment test result: PASSED") {
+				slice1 := strings.Fields(line)
+				v1 := slice1[5]
+				satainfo.SMART_result = v1
+			}
+			if strings.Contains(line, "SMART Health Status") {
+				slice1 := strings.Fields(line)
+				v1 := slice1[3]
+				sasinfo.SMART_Health_Status = v1
 			}
 			if strings.Contains(line, "Device Model") {
 				slice1 := strings.Fields(line)
@@ -190,14 +213,16 @@ func Getsmartinfo() {
 			}
 			if strings.Contains(line, "Manufactured in week") {
 				slice1 := strings.Fields(line)
-				v1 := slice1[3]
-				v2 := slice1[6]
-				date := v2 + v1
-				//f, _ := strconv.ParseFloat(date, 64)
-				//tag := "disk = " + tags
-				fmt.Println(date)
-				sasinfo.Data.Manufactured_in_week = date
-				//pushIt(date, timestamp, "Manufacture date", tag, "", "GAUGE", endpoint)
+				if len(slice1) > 6 {
+					v1 := slice1[3]
+					v2 := slice1[6]
+					date := v2 + v1
+					//f, _ := strconv.ParseFloat(date, 64)
+					//tag := "disk = " + tags
+					fmt.Println(date)
+					sasinfo.Data.Manufactured_in_week = date
+					//pushIt(date, timestamp, "Manufacture date", tag, "", "GAUGE", endpoint)
+				}
 			}
 			if strings.Contains(line, "Specified cycle count over device lifetime") {
 				slice1 := strings.Fields(line)
@@ -393,31 +418,43 @@ func Getsmartinfo() {
 				thresh = v[5]
 				raw_value = v[9]
 			}*/
-			if strings.Contains(line, "0x00") && strings.Contains(line, "-") {
-				val := strings.Fields(line)
-				f1, _ := strconv.ParseFloat(val[0], 64)
-				f2, _ := strconv.ParseFloat(val[3], 64)
-				f3, _ := strconv.ParseFloat(val[5], 64)
-				f4, _ := strconv.ParseFloat(val[9], 64)
-				//LogRun(plu_name + "*****" + "smartkey: " + smartkey)
-				//LogRun(plu_name + "*****" + "smartvalue : " + smartvalue)
-				t := time.Now().Unix()
-				//timestamp := fmt.Sprintf("%d", t)
-				satainfo.Time = t
-				//tag1 := "type = " + id + "," + " disk = " + tags
-				//tag2 := "type = " + value + "," + " disk = " + tags
-				//tag3 := "type = " + thresh + "," + " disk = " + tags
-				//tag4 := "type = " + raw_value + "," + " disk = " + tags
-				//pushIt(val[0], timestamp, val[1], tag1, "", "GAUGE", endpoint)
-				//pushIt(val[3], timestamp, val[1], tag2, "", "GAUGE", endpoint)
-				//pushIt(val[5], timestamp, val[1], tag3, "", "GAUGE", endpoint)
-				//pushIt(val[9], timestamp, val[1], tag4, "", "GAUGE", endpoint)
-				satainfo.Data[val[1]] = [4]float64{f1, f2, f3, f4}
+			if strings.Contains(line, "0x00") {
+				if strings.Contains(line, "Always") || strings.Contains(line, "Offline") {
+					if !strings.Contains(line, "status:") {
+						var metric string
+						val := strings.Fields(line)
+						if strings.Contains(line, "Unknown") {
+							metric = val[1] + "_" + val[0]
+						} else {
+							metric = val[1]
+						}
+						f1, _ := strconv.ParseFloat(val[0], 64)
+						f2, _ := strconv.ParseFloat(val[3], 64)
+						f3, _ := strconv.ParseFloat(val[5], 64)
+						f4, _ := strconv.ParseFloat(val[9], 64)
+						//LogRun(plu_name + "*****" + "smartkey: " + smartkey)
+						//LogRun(plu_name + "*****" + "smartvalue : " + smartvalue)
+						t := time.Now().Unix()
+						//timestamp := fmt.Sprintf("%d", t)
+						satainfo.Time = t
+						//tag1 := "type = " + id + "," + " disk = " + tags
+						//tag2 := "type = " + value + "," + " disk = " + tags
+						//tag3 := "type = " + thresh + "," + " disk = " + tags
+						//tag4 := "type = " + raw_value + "," + " disk = " + tags
+						//pushIt(val[0], timestamp, val[1], tag1, "", "GAUGE", endpoint)
+						//pushIt(val[3], timestamp, val[1], tag2, "", "GAUGE", endpoint)
+						//pushIt(val[5], timestamp, val[1], tag3, "", "GAUGE", endpoint)
+						//pushIt(val[9], timestamp, val[1], tag4, "", "GAUGE", endpoint)
+						satainfo.Data[metric] = [4]float64{f1, f2, f3, f4}
+					}
+				}
 			}
 		}
 		if sasinfo.Type != "" && sasinfo.Type == "SAS" {
+			t := time.Now().Unix()
+			timestamp := fmt.Sprintf("%d", t)
 			jsonsasinfo, _ := json.Marshal(sasinfo)
-			//pushIt(value, timestamp, metric, tags, containerId, counterType, endpoint)
+			pushIt(string(jsonsasinfo), timestamp, "", "", "", "disk", endpoint)
 			fmt.Println(string(jsonsasinfo))
 		}
 		if satainfo.Type != "" && satainfo.Type == "SATA" {
@@ -432,8 +469,8 @@ func Getsmartinfo() {
 	cmd.Wait()
 }
 
-func Getip() string {
-	address, err := net.InterfaceByName("enp4s0f0")
+func Getip(n string) string {
+	address, err := net.InterfaceByName(n)
 	if err != nil {
 		fmt.Println("failed to query ip")
 		os.Exit(2)

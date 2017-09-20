@@ -10,7 +10,7 @@ import (
 //+ `,"smartkey": "` + smartkey
 func pushIt(value, timestamp, metric, tags, containerId, counterType, endpoint string) error {
 
-	postThing := `[{"metric": "` + metric + `", "endpoint": "` + endpoint + `", "timestamp": ` + timestamp + `,"step": ` + "60" + `,"smartkey": "` + containerId + `","value": "` + value + `","counterType": "` + counterType + `","tags": "` + tags + `"}]`
+	postThing := `[{"metric": "` + metric + `", "endpoint": "` + endpoint + `", "timestamp": ` + timestamp + `,"step": ` + "60" + `,"value": ` + value + `,"counterType": "` + counterType + `","tags": "` + tags + `"}]`
 	//LogRun(plu_name + "*****" + postThing)
 
 	//push data to falcon-agent
